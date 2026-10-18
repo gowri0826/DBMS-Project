@@ -81,6 +81,19 @@ const PROJECT_STATUS = [
   "Rejected"
 ];
 
+const DEFAULT_SKILLS = [
+  { skill_id: 1, skill_name: "Python" },
+  { skill_id: 2, skill_name: "JavaScript" },
+  { skill_id: 3, skill_name: "React" },
+  { skill_id: 4, skill_name: "Node.js" },
+  { skill_id: 5, skill_name: "SQL" },
+  { skill_id: 6, skill_name: "Machine Learning" },
+  { skill_id: 7, skill_name: "Data Analysis" },
+  { skill_id: 8, skill_name: "Research Writing" },
+  { skill_id: 9, skill_name: "Team Collaboration" },
+  { skill_id: 10, skill_name: "Problem Solving" }
+];
+
 function safeArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -3974,6 +3987,11 @@ function SkillsPage({
   const skills =
     safeArray(data);
 
+  const availableSkills =
+    safeArray(allSkills).length
+      ? safeArray(allSkills)
+      : DEFAULT_SKILLS;
+
   const save =
     async (event) => {
       event.preventDefault();
@@ -4066,9 +4084,7 @@ function SkillsPage({
                   Select Skill
                 </option>
 
-                {safeArray(
-                  allSkills
-                ).map(
+                {availableSkills.map(
                   (skill) => (
                     <option
                       key={

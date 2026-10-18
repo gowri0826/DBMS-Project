@@ -37,14 +37,68 @@ const db = mysql.createConnection({
     multipleStatements: false
 });
 
-db.connect((error) => {
+db.connect(async (error) => {
     if (error) {
         console.error("MySQL Connection Error:", error.message);
         return;
     }
 
     console.log("MySQL Connected Successfully");
+
+    try {
+        await initializeDatabase();
+    } catch (dbInitError) {
+        console.error("Database initialization failed:", dbInitError.message);
+    }
 });
+
+async function initializeDatabase() {
+    await queryDb(`
+        CREATE TABLE IF NOT EXISTS skills (
+            skill_id INT AUTO_INCREMENT PRIMARY KEY,
+            skill_name VARCHAR(100) NOT NULL UNIQUE,
+            skill_category VARCHAR(100),
+            description TEXT
+        ) ENGINE=InnoDB
+    `);
+
+    await queryDb(`
+        CREATE TABLE IF NOT EXISTS student_skills (
+            student_skill_id INT AUTO_INCREMENT PRIMARY KEY,
+            student_id INT NOT NULL,
+            skill_id INT NOT NULL,
+            proficiency_level ENUM('Beginner', 'Intermediate', 'Advanced') NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_student_skill (student_id, skill_id),
+            CONSTRAINT fk_student_skill_skill
+                FOREIGN KEY (skill_id) REFERENCES skills(skill_id)
+                ON DELETE CASCADE
+        ) ENGINE=InnoDB
+    `);
+
+    const defaultSkills = [
+        ["Python", "Programming"],
+        ["JavaScript", "Programming"],
+        ["React", "Frontend"],
+        ["Node.js", "Backend"],
+        ["SQL", "Database"],
+        ["Machine Learning", "AI"],
+        ["Data Analysis", "Analytics"],
+        ["Research Writing", "Communication"],
+        ["Team Collaboration", "Soft Skills"],
+        ["Problem Solving", "General"]
+    ];
+
+    for (const [skillName, category] of defaultSkills) {
+        await queryDb(
+            `INSERT IGNORE INTO skills (skill_name, skill_category)
+             VALUES (?, ?)`,
+            [skillName, category]
+        );
+    }
+
+    console.log("Default skill catalog ensured");
+}
 
 function queryDb(sql, params = []) {
     return new Promise((resolve, reject) => {
