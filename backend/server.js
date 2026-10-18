@@ -54,6 +54,55 @@ db.connect(async (error) => {
 
 async function initializeDatabase() {
     await queryDb(`
+        CREATE TABLE IF NOT EXISTS departments (
+            department_id INT AUTO_INCREMENT PRIMARY KEY,
+            department_name VARCHAR(150) NOT NULL,
+            department_code VARCHAR(50) NOT NULL UNIQUE
+        ) ENGINE=InnoDB
+    `);
+
+    await queryDb(`
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INT AUTO_INCREMENT PRIMARY KEY,
+            full_name VARCHAR(150) NOT NULL,
+            email VARCHAR(150) NOT NULL UNIQUE,
+            password VARCHAR(100) NOT NULL,
+            role ENUM('Student', 'Faculty', 'Admin') NOT NULL,
+            department_id INT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (department_id) REFERENCES departments(department_id)
+                ON DELETE SET NULL
+        ) ENGINE=InnoDB
+    `);
+
+    await queryDb(`
+        CREATE TABLE IF NOT EXISTS students (
+            student_id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL UNIQUE,
+            register_number VARCHAR(50) NOT NULL UNIQUE,
+            cgpa DECIMAL(4,2) DEFAULT 0,
+            semester INT DEFAULT 1,
+            previous_project_experience TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+                ON DELETE CASCADE
+        ) ENGINE=InnoDB
+    `);
+
+    await queryDb(`
+        CREATE TABLE IF NOT EXISTS faculty (
+            faculty_id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL UNIQUE,
+            employee_id VARCHAR(50) NOT NULL UNIQUE,
+            designation VARCHAR(100),
+            specialization VARCHAR(150),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+                ON DELETE CASCADE
+        ) ENGINE=InnoDB
+    `);
+
+    await queryDb(`
         CREATE TABLE IF NOT EXISTS skills (
             skill_id INT AUTO_INCREMENT PRIMARY KEY,
             skill_name VARCHAR(100) NOT NULL UNIQUE,
@@ -97,7 +146,66 @@ async function initializeDatabase() {
         );
     }
 
-    console.log("Default skill catalog ensured");
+    const defaultUsers = [
+        {
+            full_name: "Student One",
+            email: "student1@college.edu",
+            password: "student1",
+            role: "Student"
+        },
+        {
+            full_name: "Student Two",
+            email: "student2@college.edu",
+            password: "student2",
+            role: "Student"
+        },
+        {
+            full_name: "Faculty One",
+            email: "faculty1@college.edu",
+            password: "faculty1",
+            role: "Faculty"
+        },
+        {
+            full_name: "Faculty Two",
+            email: "faculty2@college.edu",
+            password: "faculty2",
+            role: "Faculty"
+        }
+    ];
+
+    for (const user of defaultUsers) {
+        const existing = await queryDb(
+            `SELECT user_id FROM users WHERE LOWER(email) = ? LIMIT 1`,
+            [normalizeEmail(user.email)]
+        );
+
+        if (!existing.length) {
+            const userResult = await queryDb(
+                `INSERT INTO users (full_name, email, password, role, department_id)
+                 VALUES (?, ?, ?, ?, NULL)`,
+                [user.full_name, normalizeEmail(user.email), user.password, user.role]
+            );
+
+            if (user.role === "Student") {
+                const registerNumber = `STU${String(userResult.insertId).padStart(4, "0")}`;
+                await queryDb(
+                    `INSERT IGNORE INTO students (user_id, register_number, cgpa, semester, previous_project_experience)
+                     VALUES (?, ?, 0, 1, 'No')`,
+                    [userResult.insertId, registerNumber]
+                );
+            }
+
+            if (user.role === "Faculty") {
+                await queryDb(
+                    `INSERT IGNORE INTO faculty (user_id, employee_id, designation, specialization)
+                     VALUES (?, ?, ?, ?)`,
+                    [userResult.insertId, `FAC${String(userResult.insertId).padStart(4, "0")}`, "Assistant Professor", "Research Coordination"]
+                );
+            }
+        }
+    }
+
+    console.log("Database tables and default demo accounts ensured");
 }
 
 function queryDb(sql, params = []) {
@@ -454,10 +562,28 @@ app.get(
 app.post(
     "/api/login",
     async (req, res) => {
-        const email =
+            const email =
             normalizeEmail(
                 req.body.email
             );
+
+        const requestedRole =
+            String(
+                req.body.role ||
+                    "Student"
+            )
+                .trim();
+
+        if (
+            !["Student", "Faculty"].includes(
+                requestedRole
+            )
+        ) {
+            return res.status(400).json({
+                message:
+                    "Role must be Student or Faculty"
+            });
+        }
 
         const password =
             String(
@@ -514,6 +640,16 @@ app.post(
                 const user =
                     users[0];
 
+                if (
+                    user.role !==
+                    requestedRole
+                ) {
+                    return res.status(403).json({
+                        message:
+                            `This account is registered as ${user.role}. Please log in as the correct role.`
+                    });
+                }
+
                 // STUDENT
                 if (
                     user.role ===
@@ -533,7 +669,6 @@ app.post(
                             [user.user_id]
                         );
 
-                    // Repair missing student row
                     if (!students.length) {
                         const registerNumber =
                             `AUTO${String(
@@ -622,6 +757,46 @@ app.post(
                             [user.user_id]
                         );
 
+                    if (!faculty.length) {
+                        const employeeId =
+                            `FAC${String(
+                                user.user_id
+                            ).padStart(
+                                4,
+                                "0"
+                            )}`;
+
+                        await queryDb(
+                            `INSERT INTO faculty
+                            (
+                                user_id,
+                                employee_id,
+                                designation,
+                                specialization
+                            )
+                            VALUES (?, ?, ?, ?)`,
+                            [
+                                user.user_id,
+                                employeeId,
+                                "Assistant Professor",
+                                "Research Coordination"
+                            ]
+                        );
+                    }
+
+                    const facultyRecord =
+                        await queryDb(
+                            `SELECT
+                                faculty_id,
+                                employee_id,
+                                designation,
+                                specialization
+                             FROM faculty
+                             WHERE user_id = ?
+                             LIMIT 1`,
+                            [user.user_id]
+                        );
+
                     return res.json({
                         message:
                             "Login successful",
@@ -630,22 +805,22 @@ app.post(
                             ...user,
 
                             faculty_id:
-                                faculty[0]
+                                facultyRecord[0]
                                     ?.faculty_id ||
                                 null,
 
                             employee_id:
-                                faculty[0]
+                                facultyRecord[0]
                                     ?.employee_id ||
                                 null,
 
                             designation:
-                                faculty[0]
+                                facultyRecord[0]
                                     ?.designation ||
                                 null,
 
                             specialization:
-                                faculty[0]
+                                facultyRecord[0]
                                     ?.specialization ||
                                 null
                         }
@@ -660,7 +835,6 @@ app.post(
                 });
             }
 
-            // NEW USER -> STUDENT
             const fullName =
                 nameFromEmail(
                     email
@@ -676,44 +850,111 @@ app.post(
                         role,
                         department_id
                     )
-                    VALUES (?, ?, ?, 'Student', NULL)`,
+                    VALUES (?, ?, ?, ?, NULL)`,
                     [
                         fullName,
                         email,
-                        prefix
+                        prefix,
+                        requestedRole
                     ]
                 );
 
-            const registerNumber =
-                `AUTO${String(
+            if (
+                requestedRole ===
+                "Student"
+            ) {
+                const registerNumber =
+                    `AUTO${String(
+                        userResult.insertId
+                    ).padStart(
+                        4,
+                        "0"
+                    )}`;
+
+                const studentResult =
+                    await queryDb(
+                        `INSERT INTO students
+                        (
+                            user_id,
+                            register_number,
+                            cgpa,
+                            semester,
+                            previous_project_experience
+                        )
+                        VALUES (?, ?, 0, 1, 'No')`,
+                        [
+                            userResult.insertId,
+                            registerNumber
+                        ]
+                    );
+
+                return res
+                    .status(201)
+                    .json({
+                        message:
+                            "Account created and login successful",
+
+                        user: {
+                            user_id:
+                                userResult.insertId,
+
+                            full_name:
+                                fullName,
+
+                            email,
+
+                            role:
+                                "Student",
+
+                            department_id:
+                                null,
+
+                            student_id:
+                                studentResult.insertId,
+
+                            register_number:
+                                registerNumber,
+
+                            cgpa: 0,
+
+                            semester: 1,
+
+                            previous_project_experience:
+                                "No"
+                        }
+                    });
+            }
+
+            const employeeId =
+                `FAC${String(
                     userResult.insertId
                 ).padStart(
                     4,
                     "0"
                 )}`;
 
-            const studentResult =
-                await queryDb(
-                    `INSERT INTO students
-                    (
-                        user_id,
-                        register_number,
-                        cgpa,
-                        semester,
-                        previous_project_experience
-                    )
-                    VALUES (?, ?, 0, 1, 'No')`,
-                    [
-                        userResult.insertId,
-                        registerNumber
-                    ]
-                );
+            await queryDb(
+                `INSERT INTO faculty
+                (
+                    user_id,
+                    employee_id,
+                    designation,
+                    specialization
+                )
+                VALUES (?, ?, ?, ?)`,
+                [
+                    userResult.insertId,
+                    employeeId,
+                    "Assistant Professor",
+                    "Research Coordination"
+                ]
+            );
 
             return res
                 .status(201)
                 .json({
                     message:
-                        "Account created and login successful",
+                        "Faculty account created and login successful",
 
                     user: {
                         user_id:
@@ -725,23 +966,22 @@ app.post(
                         email,
 
                         role:
-                            "Student",
+                            "Faculty",
 
                         department_id:
                             null,
 
-                        student_id:
-                            studentResult.insertId,
+                        faculty_id:
+                            userResult.insertId,
 
-                        register_number:
-                            registerNumber,
+                        employee_id:
+                            employeeId,
 
-                        cgpa: 0,
+                        designation:
+                            "Assistant Professor",
 
-                        semester: 1,
-
-                        previous_project_experience:
-                            "No"
+                        specialization:
+                            "Research Coordination"
                     }
                 });
         } catch (error) {

@@ -663,6 +663,9 @@ function LoginScreen({
   const [password, setPassword] =
     useState("");
 
+  const [role, setRole] =
+    useState("Student");
+
   const [loading, setLoading] =
     useState(false);
 
@@ -685,7 +688,8 @@ function LoginScreen({
             method: "POST",
             body: JSON.stringify({
               email,
-              password
+              password,
+              role
             })
           }
         );
@@ -743,6 +747,17 @@ function LoginScreen({
           onSubmit={submit}
         >
           <Field
+            label="Role"
+            value={role}
+            onChange={setRole}
+            options={[
+              "Student",
+              "Faculty"
+            ]}
+            required
+          />
+
+          <Field
             label="Email"
             value={email}
             onChange={setEmail}
@@ -779,21 +794,19 @@ function LoginScreen({
 
         <div className="login-rule">
           <strong>
-            Login rule
+            Demo accounts
           </strong>
 
           <span>
-            Password = part before @
+            Student: student1@college.edu / student1
           </span>
 
           <code>
-            gowri@gmail.com → gowri
+            Faculty: faculty1@college.edu / faculty1
           </code>
 
           <small>
-            New student accounts can
-            enter their academic
-            details after login.
+            Password is the part before @, and faculty accounts unlock the faculty dashboard while the student flow remains unchanged.
           </small>
         </div>
       </div>
